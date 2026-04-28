@@ -51,10 +51,8 @@ const sortState = {};
 
 const MAX_POINTS = 200;
 
-// ===== SAFE =====
 function safe(n){ return (typeof n==="number" && !isNaN(n)) ? n : 0; }
 
-// ===== UTILS =====
 function formatDate(ts){
 let d=new Date(ts*1000);
 return d.toLocaleDateString()+" "+d.toLocaleTimeString();
@@ -76,7 +74,6 @@ if(label==="1M+") return "#4dff88";
 return "#4da6ff";
 }
 
-// ===== CREATE =====
 function createMiner(name){
 if(!(name in pageState)) pageState[name]=0;
 if(!(name in sortState)) sortState[name]={col:5,asc:false};
@@ -118,95 +115,55 @@ return `<div class="card">
 </div>`;
 }
 
-// ===== SCATTER (índice) =====
 function initChart(name){
 setTimeout(()=>{
 let ctx=document.getElementById(name+"_c");
-
-charts[name]=new Chart(ctx,{
-type:'scatter',
-data:{datasets:[]},
-options:{
-animation:false,
-plugins:{legend:{labels:{color:"#0f0"}}}
-}
-});
+charts[name]=new Chart(ctx,{type:'scatter',data:{datasets:[]},options:{animation:false}});
 },100);
 }
 
-// ===== TIMELINE =====
 function initTimeline(name){
 setTimeout(()=>{
 let ctx=document.getElementById(name+"_timeline");
-
 timelineCharts[name]=new Chart(ctx,{
 type:'line',
 data:{datasets:[]},
 options:{
 animation:false,
-plugins:{legend:{labels:{color:"#0f0"}}},
-elements:{
-point:{radius:2},
-line:{tension:0.2}
-},
+elements:{point:{radius:2},line:{tension:0.2}},
 scales:{
-x:{
-type:'time',
-time:{unit:'minute'},
-ticks:{color:"#0f0"}
-},
-y:{
-type:'logarithmic',   // 👈 opcional pero MUY recomendado
-ticks:{color:"#0f0"}
-}
+x:{type:'time',time:{unit:'minute'}},
+y:{type:'logarithmic'}
 }
 }
 });
 },100);
 }
 
-// ===== BUILD CHARTS =====
 function rebuildCharts(name){
-
 let data = bigCache[name] || [];
 
-let buckets={
-"1G+":[],
-"100M+":[],
-"10M+":[],
-"1M+":[],
-"100k+":[]
-};
-
-let timelineBuckets=JSON.parse(JSON.stringify(buckets));
+let buckets={"1G+":[],"100M+":[],"10M+":[],"1M+":[],"100k+":[]};
 
 let recent = data.slice(0,MAX_POINTS).reverse();
 
 recent.forEach((x,i)=>{
 let diff=x[0];
-let ts=x[6]*1000;
 let label=getBucketLabel(diff);
-
 buckets[label].push({x:i,y:diff});
 });
 
-// scatter
 charts[name].data.datasets = Object.keys(buckets).map(k=>({
 label:k,data:buckets[k],backgroundColor:bucketColor(k),pointRadius:4
 }));
 charts[name].update();
 
-// timeline
-let timelineData = recent.map(x=>({
-x: x[6]*1000,
-y: x[0]
-}));
+let timelineData = recent.map(x=>({x:x[6]*1000,y:x[0]}));
 
 timelineCharts[name].data.datasets = [{
 label:"Diff",
 data:timelineData,
 borderColor:"#00ffcc",
-backgroundColor:"#00ffcc",
 pointRadius:2,
 tension:0.2,
 fill:false
@@ -215,35 +172,45 @@ fill:false
 timelineCharts[name].update();
 }
 
-// ===== LOAD =====
+// 🔥 FIX: SOLO cache
 async function loadBig(name){
 let r=await fetch("/big/"+name);
 let d=await r.json();
-
 bigCache[name]=d;
-
-renderTable(name);
-updatePie(name);
-updateBucketText(name);
-rebuildCharts(name);
 }
 
-// ===== TABLE =====
 function renderTable(name){
 
 let data=[...(bigCache[name]||[])];
+
+// asegurar estados
+if(!(name in pageState)) pageState[name]=0;
+if(!(name in sortState)) sortState[name]={col:5,asc:false};
+
+let page = pageState[name];
 let {col,asc}=sortState[name];
-let page = pageState[name] || 0;
 let perPage=10;
 
+// 🔥 SORT FIX
 data.sort((a,b)=>{
+
 let v1 = (col===5)?a[6]:a[col];
 let v2 = (col===5)?b[6]:b[col];
+
+v1 = Number(v1);
+v2 = Number(v2);
+
+if(isNaN(v1)) v1 = 0;
+if(isNaN(v2)) v2 = 0;
+
 return asc ? v1 - v2 : v2 - v1;
 });
 
 let max=Math.ceil(data.length/perPage)||1;
-if(page>=max) pageState[name]=max-1;
+
+if(page>=max){
+pageState[name]=Math.max(0,max-1);
+}
 
 let slice=data.slice(pageState[name]*perPage,(pageState[name]+1)*perPage);
 
@@ -264,11 +231,29 @@ return `<tr>
 }).join("");
 }
 
-// ===== PIE =====
+function sortTable(name,col){
+
+if(!(name in sortState)){
+    sortState[name]={col:5,asc:false};
+}
+
+let s = sortState[name];
+
+if(s.col === col){
+    s.asc = !s.asc;
+}else{
+    s.col = col;
+    s.asc = true;
+}
+
+renderTable(name);
+}
+function nextPage(name){pageState[name]++;renderTable(name);}
+function prevPage(name){pageState[name]=Math.max(0,pageState[name]-1);renderTable(name);}
+
 function updatePie(name){
 let data=bigCache[name]||[];
 let buckets={};
-
 data.forEach(x=>{
 let l=getBucketLabel(x[0]);
 buckets[l]=(buckets[l]||0)+1;
@@ -286,16 +271,13 @@ data:{labels:labels,datasets:[{data:vals,backgroundColor:colors}]}
 }else{
 pies[name].data.labels=labels;
 pies[name].data.datasets[0].data=vals;
-pies[name].data.datasets[0].backgroundColor=colors;
 pies[name].update();
 }
 }
 
-// ===== BUCKET TEXT =====
 function updateBucketText(name){
 let data=bigCache[name]||[];
 let buckets={};
-
 data.forEach(x=>{
 let l=getBucketLabel(x[0]);
 buckets[l]=(buckets[l]||0)+1;
@@ -305,11 +287,9 @@ let txt="";
 Object.keys(buckets).forEach(k=>{
 txt+=`<span style="color:${bucketColor(k)}">${k}: ${buckets[k]}</span> | `;
 });
-
 document.getElementById(name+"_bucket").innerHTML=txt;
 }
 
-// ===== SOCKET =====
 socket.on("update", data=>{
 
 total.innerText=safe(data.total.hashrate);
@@ -335,7 +315,16 @@ document.getElementById(n+"_b").innerText=m.best_diff_fmt;
 document.getElementById(n+"_p").innerText=safe(m.last_percent).toFixed(4)+"%";
 }
 
-// refresh DB
+// 🔥 render centralizado
+for(let n in data.miners){
+if(bigCache[n]){
+renderTable(n);
+updatePie(n);
+updateBucketText(n);
+rebuildCharts(n);
+}
+}
+
 if(!window.lastDB) window.lastDB=0;
 if(Date.now()-window.lastDB>5000){
 for(let n in data.miners) loadBig(n);
