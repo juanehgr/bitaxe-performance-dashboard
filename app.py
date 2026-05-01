@@ -15,7 +15,7 @@ BITAXES = {
 }
 
 DB_FILE = "bitaxe.db"
-MIN_DIFF = 100_000
+MIN_DIFF = 1_000_000
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -26,7 +26,7 @@ last_diff_seen = {}   # 🔥 FIX NUEVO (evitar duplicados)
 
 COINS = {
     "BTC": {"diff_url": "https://blockchain.info/q/getdifficulty","price_id": "bitcoin","reward": 3.125},
-    "BSV": {"diff_url": "https://api.whatsonchain.com/v1/bsv/main/chain/info","price_id": "bitcoin-cash-sv","reward": 6.25},
+    "BSV": {"diff_url": "https://api.whatsonchain.com/v1/bsv/main/chain/info","price_id": "bitcoin-cash-sv","reward": 3.25},
     "FCH": {"diff_url": "https://explorer.fch.network/api/getdifficulty","price_id": "freecash","reward": 6.25}
 }
 
@@ -130,7 +130,7 @@ def get_history(miner):
         SELECT timestamp, hashrate, temp
         FROM shares
         WHERE miner=?
-        ORDER BY id DESC LIMIT 100
+        ORDER BY id DESC
     """,(miner,))
 
     r=c.fetchall()
@@ -146,9 +146,9 @@ def get_big_shares(miner):
         SELECT diff,bucket,hashrate,temp,percent,remaining,timestamp
         FROM big_shares
         WHERE miner=?
+	AND diff  >= ?
         ORDER BY id DESC
-        LIMIT 1000
-    """,(miner,))
+    """,(miner,MIN_DIFF))
 
     r=c.fetchall()
     conn.close()
@@ -214,54 +214,60 @@ def fetch_stats(name,ip):
 
 # ===== WS =====
 
-def ws_thread(name,ip):
-    def on_message(ws,msg):
-        if "asic_result" in msg.lower():
-            d=parse_diff(msg)
 
+def ws_thread(name, ip):
+
+    def on_message(ws, msg):
+        if "asic_result" in msg.lower():
+            d = parse_diff(msg)
             if not d:
                 return
 
-            # 🔥 EVITAR DUPLICADOS
             if d == last_diff_seen[name]:
                 return
             last_diff_seen[name] = d
 
-            m=miners[name]
-
-            save_share(name,d,m["hashrate"],m["temp"])
+            m = miners[name]
+            save_share(name, d, m["hashrate"], m["temp"])
 
             bucket = classify_share(d)
             if bucket:
                 m["share_buckets"][bucket] += 1
 
             if d >= MIN_DIFF:
-                net=network_data["difficulty"]
+                net = network_data["difficulty"]
+                prob = d / net if net else 0
+                percent = (1 - math.exp(-prob)) * 100
+                rem = net - d if net else 0
 
-                prob=d/net if net else 0
-                percent=(1-math.exp(-prob))*100
-                rem=net-d if net else 0
+                save_big_share(name, d, bucket, m["hashrate"], m["temp"], percent, rem)
+                m["last_percent"] = percent
 
-                save_big_share(
-                    name,
-                    d,
-                    bucket,
-                    m["hashrate"],
-                    m["temp"],
-                    percent,
-                    rem
-                )
+    def on_close(ws, *args):
+        print(f"[{name}] WS cerrado")
 
-                m["last_percent"]=percent
+    def on_error(ws, error):
+        print(f"[{name}] WS error:", error)
 
     while True:
         try:
-            websocket.WebSocketApp(
+            print(f"[{name}] Conectando WS...")
+
+            ws = websocket.WebSocketApp(
                 f"ws://{ip}/api/ws",
-                on_message=on_message
-            ).run_forever()
-        except:
-            time.sleep(3)
+                on_message=on_message,
+                on_close=on_close,
+                on_error=on_error
+            )
+
+            ws.run_forever(ping_interval=30, ping_timeout=10)
+
+            print(f"[{name}] WS terminado, reconectando...")
+
+        except Exception as e:
+            print(f"[{name}] Exception:", e)
+
+        time.sleep(3)
 
 # ===== API =====
 
@@ -289,7 +295,7 @@ def buckets(miner):
     rows = c.fetchall()
     conn.close()
 
-    result = {"1G+":0,"100M+":0,"10M+":0,"1M+":0,"100k+":0}
+    result = {"1G+":0,"100M+":0,"10M+":0,"1M+":0}
 
     for (d,) in rows:
         if d >= 1e9: result["1G+"] += 1
@@ -305,7 +311,7 @@ def big_count(miner):
     conn=sqlite3.connect(DB_FILE)
     c=conn.cursor()
 
-    c.execute("SELECT COUNT(*) FROM big_shares WHERE miner=?", (miner,))
+    c.execute("SELECT COUNT(*) FROM big_shares WHERE miner=? AND diff >= ?", (miner, MIN_DIFF))
     count = c.fetchone()[0]
 
     conn.close()
@@ -346,5 +352,4 @@ if __name__=="__main__":
         threading.Thread(target=ws_thread,args=(n,ip),daemon=True).start()
 
     socketio.start_background_task(emit_loop)  # 🔥 FIX CLAVE
-
-    socketio.run(app,host="0.0.0.0",port=5000)
+    socketio.run(app, host="0.0.0.0", port=5000, allow_unsafe_werkzeug=True)
