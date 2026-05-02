@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>Logs</h2>
+
+<div class="card">
+  <pre id="logs" style="
+    height:600px;
+    overflow:auto;
+    background:#0b0f14;
+    color:#00ff9f;
+    padding:10px;
+    font-size:12px;
+  "></pre>
+</div>
+
+<script>
+const box = document.getElementById("logs");
+
+// carga inicial
+async function loadLogs(){
+  const r = await fetch("/api/logs");
+  const t = await r.text();
+  box.textContent = t;
+  box.scrollTop = box.scrollHeight;
+}
+
+loadLogs();
+setInterval(loadLogs, 5000);
+
+// realtime (WS logs)
+const socket = io();
+socket.on("log", line=>{
+  box.textContent += line + "\n";
+  box.scrollTop = box.scrollHeight;
+});
+</script>
+
+{% endblock %}

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>⚙️ Settings</h2>
+
+<div class="card">
+
+  <div class="mb-3">
+    <label>Seleccionar coin</label>
+    <select id="coin" class="form-control">
+      <option value="BTC">BTC</option>
+      <option value="BSV">BSV</option>
+      <option value="FCH">FCH</option>
+    </select>
+  </div>
+
+  <button class="btn btn-primary" onclick="save()">Guardar</button>
+
+  <hr>
+
+  <p id="status"></p>
+
+</div>
+
+<script>
+async function save() {
+  const coin = document.getElementById("coin").value;
+
+  const res = await fetch("/set_coin", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ coin })
+  });
+
+  const r = await res.json();
+
+  if (r.ok) {
+    document.getElementById("status").innerText = "✅ Guardado correctamente";
+  } else {
+    document.getElementById("status").innerText = "❌ Error";
+  }
+}
+</script>
+
+{% endblock %}

@@ -9,6 +9,20 @@ from collections import defaultdict
 from flask import Flask, render_template, jsonify, request
 from flask_socketio import SocketIO
 
+
+LOG_BUFFER = []
+MAX_LOGS = 500
+
+def add_log(msg):
+    
+    ts = time.strftime("%H:%M:%S")
+    line = f"[{ts}] {msg}"
+    print(line)  # sigue saliendo en consola
+    socketio.emit("log", line)
+    LOG_BUFFER.append(line)
+    if len(LOG_BUFFER) > MAX_LOGS:
+        LOG_BUFFER.pop(0)
+
 BITAXES = {
     "gamma": "192.168.1.208",
     "nerd": "192.168.1.212"
@@ -188,8 +202,8 @@ def fetch_network():
             network_data["price"]=r.json()[coin["price_id"]]["usd"]
             network_data["block_reward"]=coin["reward"]
 
-        except:
-            pass
+        except Exception as e:
+            add_log(f"[NETWORK] ERROR: {e}")
 
         time.sleep(10)
 
@@ -207,8 +221,8 @@ def fetch_stats(name,ip):
             miners[name]["best_diff"]=b
             miners[name]["best_diff_fmt"]=format_diff(b)
 
-        except:
-            pass
+        except Exception as e:
+            add_log(f"[{name}] fetch_stats ERROR: {e}")
 
         time.sleep(2)
 
@@ -220,6 +234,7 @@ def ws_thread(name, ip):
     def on_message(ws, msg):
         if "asic_result" in msg.lower():
             d = parse_diff(msg)
+            add_log(f"[{name}] SHARE diff={d}")
             if not d:
                 return
 
@@ -244,14 +259,14 @@ def ws_thread(name, ip):
                 m["last_percent"] = percent
 
     def on_close(ws, *args):
-        print(f"[{name}] WS cerrado")
+        add_log(f"[{name}] WS cerrado")
 
     def on_error(ws, error):
-        print(f"[{name}] WS error:", error)
+        add_log(f"[{name}] WS ERROR: {error}")
 
     while True:
         try:
-            print(f"[{name}] Conectando WS...")
+            add_log(f"[{name}] Conectando WS...")
 
             ws = websocket.WebSocketApp(
                 f"ws://{ip}/api/ws",
@@ -262,10 +277,10 @@ def ws_thread(name, ip):
 
             ws.run_forever(ping_interval=30, ping_timeout=10)
 
-            print(f"[{name}] WS terminado, reconectando...")
+            add_log(f"[{name}] WS terminado, reconectando...")
 
         except Exception as e:
-            print(f"[{name}] Exception:", e)
+            add_log(f"[{name}] WS EXCEPTION: {e}")
 
         time.sleep(3)
 
@@ -316,6 +331,75 @@ def big_count(miner):
 
     conn.close()
     return {"count": count}
+    
+    
+@app.route("/api/stats")
+def api_stats():
+    total_hashrate = sum(m["hashrate"] for m in miners.values())
+    total_temp = sum(m["temp"] for m in miners.values())
+    count = len(miners) if miners else 1
+
+    avg_temp = round(total_temp / count, 1)
+
+    # histórico simple (usa un miner como referencia)
+    history_raw = get_history(list(miners.keys())[0])
+    history = [
+        {
+            "time": t,
+            "value": hr
+        }
+        for (t, hr, temp) in history_raw[-20:]
+    ]
+
+    return jsonify({
+        "hashrate": round(total_hashrate, 2),
+        "shares": sum(sum(m["share_buckets"].values()) for m in miners.values()),
+        "temp": avg_temp,
+        "active": len([m for m in miners.values() if m["hashrate"] > 0]),
+        "history": history
+    })
+@app.route("/api/logs/<miner>")
+def api_logs_miner(miner):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute("""
+        SELECT diff, timestamp
+        FROM shares
+        WHERE miner=?
+        ORDER BY id DESC
+        LIMIT 100
+    """, (miner,))
+
+    rows = c.fetchall()
+    conn.close()
+
+    lines = []
+    for diff, ts in rows:
+        lines.append(f"[{ts}] diff={diff}")
+
+    return "\n".join(lines), 200, {'Content-Type': 'text/plain'}
+    
+@app.route("/api/bitaxes")
+def api_bitaxes():
+    result = []
+
+    for name, m in miners.items():
+        result.append({
+            "id": name,
+            "ip": BITAXES.get(name, ""),
+            "hashrate": round(m["hashrate"], 2),
+            "temp": m["temp"],
+            "online": m["hashrate"] > 0,
+            "best_diff": m["best_diff_fmt"],
+            "last_percent": round(m["last_percent"], 4)
+        })
+
+    return jsonify(result)
+    
+@app.route("/api/logs")
+def api_logs():
+    return "\n".join(LOG_BUFFER), 200, {'Content-Type': 'text/plain'}
 
 # ===== EMIT =====
 
@@ -339,8 +423,20 @@ def emit_loop():
 # ===== MAIN =====
 
 @app.route("/")
-def index():
-    return render_template("index.html")
+def dashboard():
+    return render_template("dashboard.html")
+
+@app.route("/bitaxes")
+def bitaxes():
+    return render_template("bitaxes.html")
+
+@app.route("/logs")
+def logs():
+    return render_template("logs.html")
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings():
+    return render_template("settings.html")
 
 if __name__=="__main__":
     init_db()

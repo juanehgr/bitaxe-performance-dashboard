@@ -1,0 +1,36 @@
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+<body style="background:#0b0b0b; color:#0f0; font-family:monospace;">
+
+<div class="page" style="background:#0b0b0b;">
+
+<!-- NAVBAR móvil -->
+<header class="navbar navbar-expand-md d-md-none" style="background:#0b0b0b;">
+  <div class="container-xl">
+    <button class="navbar-toggler" data-bs-toggle="collapse" data-bs-target="#sidebar">☰</button>
+    <h1 class="navbar-brand" style="color:#0f0;">⚡ Bitaxe</h1>
+  </div>
+</header>
+
+<!-- SIDEBAR -->
+<aside class="navbar navbar-vertical navbar-dark collapse d-md-flex" id="sidebar" style="background:#0b0b0b;">
+  <div class="container-fluid">
+    <h1 class="navbar-brand" style="color:#0f0;">⚡ Bitaxe</h1>
+
+    <ul class="navbar-nav">
+      <li class="nav-item"><a class="nav-link" href="/">Dashboard</a></li>
+      <li class="nav-item"><a class="nav-link" href="/bitaxes">Bitaxes</a></li>
+      <li class="nav-item"><a class="nav-link" href="/logs">Logs</a></li>
+      <li class="nav-item"><a class="nav-link" href="/settings">Settings</a></li>
+    </ul>
+  </div>
+</aside>
+
+<div class="page-wrapper" style="background:#0b0b0b;">
+  <div class="container-xl mt-3" style="background:#0b0b0b;">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+
+</div>

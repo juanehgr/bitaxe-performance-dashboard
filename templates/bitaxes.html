@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block content %}
+
+<h2>⛏️ Bitaxes</h2>
+
+<div id="grid" class="grid"></div>
+
+<style>
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+.card {
+  border: 1px solid #0f0;
+  padding: 15px;
+  border-radius: 10px;
+}
+.badge-ok { color: #0f0; }
+.badge-bad { color: #f00; }
+button {
+  background:black;
+  color:#0f0;
+  border:1px solid #0f0;
+  margin-top:10px;
+}
+</style>
+
+<script>
+
+async function loadBitaxes() {
+  const res = await fetch('/api/bitaxes');
+  const data = await res.json();
+
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+
+  data.forEach(b => {
+    grid.innerHTML += `
+      <div class="card">
+        <h3>${b.id}</h3>
+
+        <p><b>IP:</b> ${b.ip}</p>
+        <p><b>Hashrate:</b> ${b.hashrate} TH/s</p>
+        <p><b>Temp:</b> ${b.temp} °C</p>
+        <p><b>Best Diff:</b> ${b.best_diff}</p>
+        <p><b>% Block:</b> ${b.last_percent}%</p>
+
+        <p>
+          <b>Status:</b>
+          <span class="${b.online ? 'badge-ok' : 'badge-bad'}">
+            ${b.online ? '🟢 Online' : '🔴 Offline'}
+          </span>
+        </p>
+
+            <h3>Logs</h3>
+      <pre id="log_${b.id}" style="max-height:200px; overflow:auto; background:#111; padding:10px;"></pre>
+      </div>
+    `;
+  });
+  
+   // cargar logs
+  for(let b of data){
+    loadLogs(b.id);
+  }
+}
+
+function view(id){
+  alert("Aquí luego puedes abrir vista individual de: " + id);
+}
+
+setInterval(loadBitaxes, 4000);
+loadBitaxes();
+
+async function loadLogs(miner){
+  let r = await fetch("/api/logs/" + miner);
+  let txt = await r.text();
+
+  document.getElementById("log_" + miner).innerText = txt;
+}
+
+</script>
+
+{% endblock %}
